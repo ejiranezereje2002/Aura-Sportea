@@ -23,7 +23,6 @@ const manifest = {
 
 const builder = new addonBuilder(manifest);
 
-// Catalog Handler
 builder.defineCatalogHandler(async ({ type, id }) => {
   if (type !== 'tv' || id !== 'aurasports_catalog') {
     return { metas: [] };
@@ -32,7 +31,6 @@ builder.defineCatalogHandler(async ({ type, id }) => {
   try {
     const response = await fetch('https://aurasports.xyz/api/schedule');
     const data = await response.json();
-
     const metas = [];
 
     if (Array.isArray(data)) {
@@ -58,7 +56,6 @@ builder.defineCatalogHandler(async ({ type, id }) => {
   }
 });
 
-// Meta Handler
 builder.defineMetaHandler(async ({ type, id }) => {
   if (type !== 'tv' || !id.startsWith('aura:')) {
     return { meta: null };
@@ -67,13 +64,12 @@ builder.defineMetaHandler(async ({ type, id }) => {
   try {
     const response = await fetch('https://aurasports.xyz/api/schedule');
     const data = await response.json();
-
     let matchDetail = null;
 
     if (Array.isArray(data)) {
       for (const category of data) {
         const matches = category.matches || category.games || [];
-        const found = matches.find((m, index) => `aura:${m.id || index}` === id);
+        const found = matches.matches || matches.find((m, index) => `aura:${m.id || index}` === id);
         if (found) {
           matchDetail = found;
           break;
@@ -100,7 +96,6 @@ builder.defineMetaHandler(async ({ type, id }) => {
   }
 });
 
-// Stream Handler
 builder.defineStreamHandler(async ({ type, id }) => {
   if (type !== 'tv' || !id.startsWith('aura:')) {
     return { streams: [] };
@@ -109,14 +104,13 @@ builder.defineStreamHandler(async ({ type, id }) => {
   try {
     const response = await fetch('https://aurasports.xyz/api/sportea');
     const data = await response.json();
-
     const streams = [];
 
     if (Array.isArray(data)) {
       data.forEach((item) => {
         if (item.sch_iframe) {
           streams.push({
-            title: item.name || 'Live Stream (Iframe/Web)',
+            title: item.name || 'Live Stream (Iframe)',
             externalUrl: item.sch_iframe
           });
         }
@@ -145,6 +139,12 @@ app.use((req, res, next) => {
   next();
 });
 
+// Mount the Stremio router
 app.use('/', addonRouter);
+
+// Fallback for root URL to avoid Cannot GET /
+app.get('/', (req, res) => {
+  res.redirect('/manifest.json');
+});
 
 module.exports = app;
