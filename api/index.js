@@ -5,172 +5,137 @@ const { addonBuilder, getRouter } = require('stremio-addon-sdk');
 const app = express();
 
 const manifest = {
-  id: 'org.aurasports.live',
-  version: '1.0.1',
-  name: 'Aura Sports Live',
-  description: 'Live sports schedules and stream links from AuraSports',
+  id: 'org.aurasports.sportea',
+  version: '1.0.0',
+  name: 'Aura Sportea Live',
+  description: 'Live sports streams and schedules from Sportea API',
   resources: ['catalog', 'meta', 'stream'],
   types: ['tv'],
   catalogs: [
     {
       type: 'tv',
-      id: 'aurasports_catalog',
-      name: 'Aura Sports'
+      id: 'sportea_catalog',
+      name: 'Sportea Live'
     }
   ],
-  idPrefixes: ['aura:']
+  idPrefixes: ['sportea:']
 };
 
 const builder = new addonBuilder(manifest);
 
-// Helper to fetch and normalize items from schedule or sportea
-async function fetchAllMatches() {
+async function fetchSporteaData() {
   try {
-    const res = await fetch('https://aurasports.xyz/api/schedule');
+    const res = await fetch('https://aurasports.xyz/api/sportea');
     const data = await res.json();
-    
-    let matchesList = [];
-    
-    // Handle different possible JSON structures
-    if (Array.isArray(data)) {
-      data.forEach(cat => {
-        const items = cat.matches || cat.games || cat.events || cat.league_schedule || (Array.isArray(cat) ? cat : []);
-        if (Array.isArray(items) && items.length > 0) {
-          matchesList.push(...items);
-        } else if (cat.id || cat.title || cat.name || cat.homeTeam) {
-          matchesList.push(cat);
-        }
-      });
-    } else if (data && typeof data === 'object') {
-      Object.values(data).forEach(val => {
-        if (Array.isArray(val)) {
-          val.forEach(sub => {
-            if (sub && typeof sub === 'object') {
-              const subItems = sub.matches || sub.games || sub.events || [sub];
-              if (Array.isArray(subItems)) matchesList.push(...subItems);
-            }
-          });
-        }
-      });
-    }
-    
-    // If schedule didn't yield matches, fetch sportea endpoint as backup/supplement
-    if (matchesList.length === 0) {
-      const res2 = await fetch('https://aurasports.xyz/api/sportea');
-      const data2 = await res2.json();
-      if (Array.isArray(data2)) {
-        data2.forEach(item => {
-          const scheduleItems = item.league_schedule || item.matches || [item];
-          if (Array.isArray(scheduleItems)) {
-            matchesList.push(...scheduleItems);
-          } else {
-            matchesList.push(item);
-          }
-        });
-      }
-    }
-
-    return matchesList;
+    return Array.isArray(data) ? data : [];
   } catch (err) {
-    console.error('Error fetching matches:', err);
+    console.error('Sportea fetch error:', err);
     return [];
   }
 }
 
+// Helper to extract all matches/schedules from the sportea feed
+async function getAllMatches() {
+  const categories = await fetchSporteaData();
+  const matches = [];
+
+  categories.forEach((group, groupIdx) => {
+    // Check if there is a league_schedule or schedule array inside the group
+    const schedules = group.league_schedule || group.schedule || group.matches || [group];
+    
+    if (Array.isArray(schedules)) {
+      schedules.forEach((item, itemIdx) => {
+        matches.push({
+          id: `${groupIdx}-${itemIdx}`,
+          title: item.title || item.name || group.name || `Match ${itemIdx + 1}`,
+          poster: item.poster || group.poster || 'https://via.placeholder.com/300x450?text=Sportea',
+          time: item.time || item.date || 'Live Now',
+          sch_iframe: item.sch_iframe || group.sch_iframe,
+          tv_guide: item.tv_guide || group.tv_guide,
+          stream_url: item.stream_url || group.stream_url
+        });
+      });
+    }
+  });
+
+  return matches;
+}
+
 builder.defineCatalogHandler(async ({ type, id }) => {
-  if (type !== 'tv' || id !== 'aurasports_catalog') {
+  if (type !== 'tv' || id !== 'sportea_catalog') {
     return { metas: [] };
   }
 
-  const matches = await fetchAllMatches();
-  const metas = matches.map((match, index) => {
-    const matchId = `aura:${match.id || index}`;
-    const name = match.title || match.name || (match.homeTeam && match.awayTeam ? `${match.homeTeam} vs ${match.awayTeam}` : `Match ${index + 1}`);
-    const poster = match.poster || match.icon || match.image || 'https://via.placeholder.com/300x450?text=Sports';
-    const description = `Time: ${match.time || match.date || match.scheduledTime || 'Live Now'}`;
-
-    return {
-      id: matchId,
-      type: 'tv',
-      name,
-      poster,
-      description
-    };
-  });
+  const matches = await getAllMatches();
+  const metas = matches.map((match) => ({
+    id: `sportea:${match.id}`,
+    type: 'tv',
+    name: match.title,
+    poster: match.poster,
+    description: `Time: ${match.time}`
+  }));
 
   return { metas };
 });
 
 builder.defineMetaHandler(async ({ type, id }) => {
-  if (type !== 'tv' || !id.startsWith('aura:')) {
+  if (type !== 'tv' || !id.startsWith('sportea:')) {
     return { meta: null };
   }
 
-  const matches = await fetchAllMatches();
-  const match = matches.find((m, index) => `aura:${m.id || index}` === id);
+  const matchId = id.replace('sportea:', '');
+  const matches = await getAllMatches();
+  const match = matches.find((m) => m.id === matchId);
 
   if (!match) {
     return { meta: null };
   }
 
-  const name = match.title || match.name || (match.homeTeam && match.awayTeam ? `${match.homeTeam} vs ${match.awayTeam}` : 'Sports Match');
-  const poster = match.poster || match.icon || match.image || 'https://via.placeholder.com/300x450?text=Sports';
-  const description = `Time: ${match.time || match.date || match.scheduledTime || 'Live Now'}`;
-
   return {
     meta: {
       id,
       type: 'tv',
-      name,
-      poster,
-      description
+      name: match.title,
+      poster: match.poster,
+      description: `Time: ${match.time}`
     }
   };
 });
 
 builder.defineStreamHandler(async ({ type, id }) => {
-  if (type !== 'tv' || !id.startsWith('aura:')) {
+  if (type !== 'tv' || !id.startsWith('sportea:')) {
     return { streams: [] };
   }
 
-  const matches = await fetchAllMatches();
-  const match = matches.find((m, index) => `aura:${m.id || index}` === id);
+  const matchId = id.replace('sportea:', '');
+  const matches = await getAllMatches();
+  const match = matches.find((m) => m.id === matchId);
 
   if (!match) {
     return { streams: [] };
   }
 
   const streams = [];
-  const streamUrl = match.stream_url || match.url || match.watchUrl;
-  const iframeUrl = match.sch_iframe || match.iframeUrl || match.embedCode;
 
-  if (streamUrl) {
+  if (match.stream_url) {
     streams.push({
-      title: match.title || match.name || 'Direct Stream',
-      url: streamUrl
+      title: `${match.title} - Direct Stream`,
+      url: match.stream_url
     });
   }
 
-  if (iframeUrl) {
+  if (match.sch_iframe) {
     streams.push({
-      title: `${match.title || match.name || 'Stream'} (Web/Iframe)`,
-      externalUrl: iframeUrl
+      title: `${match.title} - Web Iframe Player`,
+      externalUrl: match.sch_iframe
     });
   }
 
-  if (streams.length === 0) {
-    try {
-      const res = await fetch('https://aurasports.xyz/api/sportea');
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        data.forEach(item => {
-          if (item.stream_url) streams.push({ title: item.name || 'Stream', url: item.stream_url });
-          if (item.sch_iframe) streams.push({ title: `${item.name || 'Stream'} (Web)`, externalUrl: item.sch_iframe });
-        });
-      }
-    } catch (e) {
-      console.error('Sportea fallback error:', e);
-    }
+  if (match.tv_guide) {
+    streams.push({
+      title: `${match.title} - TV Guide`,
+      externalUrl: match.tv_guide
+    });
   }
 
   return { streams };
