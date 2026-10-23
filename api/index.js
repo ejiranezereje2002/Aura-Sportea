@@ -6,7 +6,7 @@ const app = express();
 
 const manifest = {
   id: 'org.aurasports.sportea',
-  version: '1.0.0',
+  version: '1.0.2',
   name: 'Aura Sportea Live',
   description: 'Live sports streams and schedules from Sportea API',
   resources: ['catalog', 'meta', 'stream'],
@@ -23,42 +23,71 @@ const manifest = {
 
 const builder = new addonBuilder(manifest);
 
-async function fetchSporteaData() {
+async function getAllMatches() {
   try {
     const res = await fetch('https://aurasports.xyz/api/sportea');
     const data = await res.json();
-    return Array.isArray(data) ? data : [];
-  } catch (err) {
-    console.error('Sportea fetch error:', err);
-    return [];
-  }
-}
-
-// Helper to extract all matches/schedules from the sportea feed
-async function getAllMatches() {
-  const categories = await fetchSporteaData();
-  const matches = [];
-
-  categories.forEach((group, groupIdx) => {
-    // Check if there is a league_schedule or schedule array inside the group
-    const schedules = group.league_schedule || group.schedule || group.matches || [group];
     
-    if (Array.isArray(schedules)) {
-      schedules.forEach((item, itemIdx) => {
+    let matches = [];
+
+    // Recursive function to extract items from any nested structure
+    const parseItem = (item, parentName = '') => {
+      if (!item || typeof item !== 'object') return;
+
+      // Check for nested schedules or lists
+      const subList = item.league_schedule || item.schedule || item.matches || item.games || item.events;
+      if (Array.isArray(subList)) {
+        subList.forEach(sub => parseItem(sub, item.name || item.title || parentName));
+        return;
+      }
+
+      // Extract details
+      const title = item.title || item.name || item.match || item.event || (parentName ? `${parentName} - Stream` : null);
+      const streamUrl = item.stream_url || item.url || item.stream || item.link;
+      const iframeUrl = item.sch_iframe || item.iframe || item.embed || item.embedUrl;
+      const tvGuide = item.tv_guide || item.guide;
+
+      if (title || streamUrl || iframeUrl) {
         matches.push({
-          id: `${groupIdx}-${itemIdx}`,
-          title: item.title || item.name || group.name || `Match ${itemIdx + 1}`,
-          poster: item.poster || group.poster || 'https://via.placeholder.com/300x450?text=Sportea',
-          time: item.time || item.date || 'Live Now',
-          sch_iframe: item.sch_iframe || group.sch_iframe,
-          tv_guide: item.tv_guide || group.tv_guide,
-          stream_url: item.stream_url || group.stream_url
+          id: String(matches.length + 1),
+          title: title || `Match ${matches.length + 1}`,
+          poster: item.poster || item.image || item.icon || 'https://via.placeholder.com/300x450?text=Sportea',
+          time: item.time || item.date || item.status || 'Live Now',
+          stream_url: streamUrl,
+          sch_iframe: iframeUrl,
+          tv_guide: tvGuide
         });
+      }
+    };
+
+    if (Array.isArray(data)) {
+      data.forEach(group => parseItem(group));
+    } else if (data && typeof data === 'object') {
+      Object.values(data).forEach(val => parseItem(val));
+    }
+
+    // Fallback item so Stremio always shows something even if empty
+    if (matches.length === 0) {
+      matches.push({
+        id: 'fallback-1',
+        title: 'Sportea Connected (No live events currently)',
+        poster: 'https://via.placeholder.com/300x450?text=No+Events',
+        time: 'Now',
+        sch_iframe: 'https://aurasports.xyz/api/sportea'
       });
     }
-  });
 
-  return matches;
+    return matches;
+  } catch (err) {
+    console.error('Sportea fetch error:', err);
+    return [{
+      id: 'error-1',
+      title: 'Error loading Sportea API',
+      poster: 'https://via.placeholder.com/300x450?text=Error',
+      time: 'Now',
+      sch_iframe: 'https://aurasports.xyz/api/sportea'
+    }];
+  }
 }
 
 builder.defineCatalogHandler(async ({ type, id }) => {
