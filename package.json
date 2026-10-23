@@ -1,6 +1,11 @@
 {
-  "name": "aura-stremio-addons",
+  "name": "aura-sports-stremio-addon",
   "version": "1.0.0",
-  "private": true,
-  "engines": { "node": ">=18" }
+  "description": "Stremio Addon for AuraSports",
+  "main": "api/index.js",
+  "dependencies": {
+    "express": "^4.19.2",
+    "node-fetch": "^2.7.0",
+    "stremio-addon-sdk": "^1.6.10"
+  }
 }
