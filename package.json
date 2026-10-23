@@ -1,0 +1,6 @@
+{
+  "name": "aura-stremio-addons",
+  "version": "1.0.0",
+  "private": true,
+  "engines": { "node": ">=18" }
+}

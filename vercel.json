@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/:addon(sportea|schedule)/:path*",
+      "destination": "/api/addon?addon=:addon&path=:path*"
+    }
+  ]
+}
